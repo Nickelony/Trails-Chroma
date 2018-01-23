@@ -1,40 +1,51 @@
-////////////////////////////////
-// Change this to your needs and recompile.
-
-// Chat prefix:
-#define CHAT_PREFIX "{bluegrey}[TC]{default}"
-
-// Trail opacity:
-#define TRAIL_OPACITY 128
-
-////////////////////////////////
-
 #include <sourcemod>
+#include <clientprefs>
 #include <sdktools>
-#include <multicolors>
 
 #pragma newdecls required
 #pragma semicolon 1
+
+enum
+{
+	iRedChannel,
+	iGreenChannel,
+	iBlueChannel,
+	iSpecialColor,
+	iAlphaChannel,
+	SETTINGS_SIZE
+}
 
 /* CVars */
 
 ConVar gCV_PluginEnabled = null;
 ConVar gCV_AdminsOnly = null;
+ConVar gCV_CheapTrails = null;
 ConVar gCV_BeamLife = null;
 ConVar gCV_BeamWidth = null;
+ConVar gCV_OnRespawn = null;
 
 /* Cached CVars */
 
 bool gB_PluginEnabled = true;
 bool gB_AdminsOnly = true;
+bool gB_CheapTrails = false;
 float gF_BeamLife = 1.5;
 float gF_BeamWidth = 1.5;
+bool gB_OnRespawn = false;
 
 /* Global variables */
 
 int gI_BeamSprite;
-int gI_SelectedColor[MAXPLAYERS + 1];
+int gI_SelectedTrail[MAXPLAYERS + 1];
+float gF_LastPosition[MAXPLAYERS + 1][3];
+bool gB_StopPlugin[MAXPLAYERS + 1];
 
+// KeyValues globals
+int gI_TrailAmount;
+char gS_TrailTitle[128][128];
+int gI_TrailSettings[128][SETTINGS_SIZE];
+
+// Spectrum cycle globals
 int gI_CycleColor[MAXPLAYERS + 1][4];
 bool gB_RedToYellow[MAXPLAYERS + 1];
 bool gB_YellowToGreen[MAXPLAYERS + 1];
@@ -43,47 +54,75 @@ bool gB_CyanToBlue[MAXPLAYERS + 1];
 bool gB_BlueToMagenta[MAXPLAYERS + 1];
 bool gB_MagentaToRed[MAXPLAYERS + 1];
 
-bool gB_TouchingTrigger[MAXPLAYERS + 1];
-float gF_LastPosition[MAXPLAYERS + 1][3];
+// Cheap trail globals
+int gI_TickCounter[MAXPLAYERS + 1];
+float gF_PlayerOrigin[MAXPLAYERS + 1][3];
 
-public Plugin myinfo = 
+Handle gH_TrailCookie;
+
+public Plugin myinfo =
 {
 	name = "Trails Chroma",
 	author = "Nickelony",
 	description = "Adds colorful player trails with special effects.",
-	version = "1.0",
-	url = "http://steamcommunity.com/id/nickelony/"
+	version = "2.0",
+	url = "steamcommunity.com/id/nickelony"
 }
 
 public void OnPluginStart()
 {
-	HookEvent("player_spawn", PlayerSpawnEvent);
+	HookEvent("player_spawn", OnPlayerSpawn);
 	
 	HookEntityOutput("trigger_teleport", "OnStartTouch", StartTouchTrigger);
 	HookEntityOutput("trigger_teleport", "OnEndTouch", EndTouchTrigger);
 	
-	RegConsoleCmd("sm_trail", Command_Trail, "Opens the 'Trail Color Selection' menu.");
-	RegConsoleCmd("sm_trails", Command_Trail, "Opens the 'Trail Color Selection' menu.");
+	RegConsoleCmd("sm_trail", Command_Trail, "Opens the 'Trail Selection' menu.");
+	RegConsoleCmd("sm_trails", Command_Trail, "Opens the 'Trail Selection' menu.");
 	
 	gCV_PluginEnabled = CreateConVar("sm_trails_enable", "1", "Enable or Disable all features of the plugin.", 0, true, 0.0, true, 1.0);
 	gCV_AdminsOnly = CreateConVar("sm_trails_adminsonly", "1", "Enable trails for admins only.", 0, true, 0.0, true, 1.0);
+	gCV_CheapTrails = CreateConVar("sm_trails_cheap", "0", "Force cheap trails (lower quality in exchange for more FPS).", FCVAR_NOTIFY, true, 0.0, true, 1.0);
 	gCV_BeamLife = CreateConVar("sm_trails_life", "1.5", "Time duration of the trails.", FCVAR_NOTIFY, true, 0.0);
 	gCV_BeamWidth = CreateConVar("sm_trails_width", "1.5", "Width of the trail beams.", FCVAR_NOTIFY, true, 0.0);
+	gCV_OnRespawn = CreateConVar("sm_trails_respawn", "0", "Disable the player's trail after respawning.", FCVAR_NOTIFY, true, 0.0, true, 1.0);
 	
 	gCV_PluginEnabled.AddChangeHook(OnConVarChanged);
 	gCV_AdminsOnly.AddChangeHook(OnConVarChanged);
+	gCV_CheapTrails.AddChangeHook(OnConVarChanged);
 	gCV_BeamLife.AddChangeHook(OnConVarChanged);
 	gCV_BeamWidth.AddChangeHook(OnConVarChanged);
+	gCV_OnRespawn.AddChangeHook(OnConVarChanged);
 	
 	AutoExecConfig();
+	
+	gH_TrailCookie = RegClientCookie("trail_cookie", "Trail Selection Cookie", CookieAccess_Protected);
+	
+	for(int i = MaxClients; i > 0; --i)
+	{
+		if(!AreClientCookiesCached(i))
+		{
+			continue;
+		}
+		
+		OnClientCookiesCached(i);
+	}
 }
 
 public void OnConVarChanged(ConVar convar, const char[] oldValue, const char[] newValue)
 {
 	gB_PluginEnabled = gCV_PluginEnabled.BoolValue;
 	gB_AdminsOnly = gCV_AdminsOnly.BoolValue;
+	gB_CheapTrails = gCV_CheapTrails.BoolValue;
 	gF_BeamLife = gCV_BeamLife.FloatValue;
 	gF_BeamWidth = gCV_BeamWidth.FloatValue;
+	gB_OnRespawn = gCV_OnRespawn.BoolValue;
+}
+
+public void OnClientCookiesCached(int client)
+{
+	char[] sCookieValue = new char[8];
+	GetClientCookie(client, gH_TrailCookie, sCookieValue, 8);
+	gI_SelectedTrail[client] = StringToInt(sCookieValue);
 }
 
 public void OnMapStart()
@@ -91,6 +130,11 @@ public void OnMapStart()
 	if(!gB_PluginEnabled)
 	{
 		return;
+	}
+	
+	if(!LoadColorsConfig())
+	{
+		SetFailState("Failed load \"configs/trails-colors.cfg\". File missing or invalid.");
 	}
 	
 	HookEntityOutput("trigger_teleport", "OnStartTouch", StartTouchTrigger);
@@ -102,7 +146,7 @@ public void OnMapStart()
 	AddFileToDownloadsTable("materials/trails/beam_01.vtf");
 }
 
-public void PlayerSpawnEvent(Event event, const char[] name, bool dontBroadcast)
+public void OnPlayerSpawn(Event event, const char[] name, bool dontBroadcast)
 {
 	if(!gB_PluginEnabled)
 	{
@@ -111,51 +155,80 @@ public void PlayerSpawnEvent(Event event, const char[] name, bool dontBroadcast)
 	
 	int client = GetClientOfUserId(event.GetInt("userid"));
 	
-	gI_SelectedColor[client] = 0;
-	gB_TouchingTrigger[client] = false;
+	if(gB_OnRespawn)
+	{
+		gI_SelectedTrail[client] = 0;
+	}
+	else
+	{
+		gB_StopPlugin[client] = true; // Prevent garbage on the first frame.
+		CreateTimer(0.1, ResumePlugin, GetClientSerial(client), TIMER_FLAG_NO_MAPCHANGE);
+	}
+}
+
+bool LoadColorsConfig()
+{
+	char[] sPath = new char[PLATFORM_MAX_PATH];
+	BuildPath(Path_SM, sPath, PLATFORM_MAX_PATH, "configs/trails-colors.cfg");
+	KeyValues kv = new KeyValues("trails-colors");
+	
+	if(!kv.ImportFromFile(sPath) || !kv.GotoFirstSubKey())
+	{
+		delete kv;
+		return false;
+	}
+	
+	int i = 0;
+	
+	do
+	{
+		kv.GetString("name", gS_TrailTitle[i], 128, "<MISSING TRAIL NAME>");
+		
+		gI_TrailSettings[i][iRedChannel] = kv.GetNum("red", 255);
+		gI_TrailSettings[i][iGreenChannel] = kv.GetNum("green", 255);
+		gI_TrailSettings[i][iBlueChannel] = kv.GetNum("blue", 255);
+		gI_TrailSettings[i][iSpecialColor] = kv.GetNum("special", 0);
+		gI_TrailSettings[i][iAlphaChannel] = kv.GetNum("alpha", 128);
+		
+		i++;
+	}
+	while(kv.GotoNextKey());
+	
+	delete kv;
+	gI_TrailAmount = i;
+	return true;
 }
 
 public Action Command_Trail(int client, int args)
 {
-	if(!gB_PluginEnabled || IsFakeClient(client))
+	if(!gB_PluginEnabled || !IsValidClient(client))
 	{
-		return Plugin_Handled;
-	}
-	
-	if(!IsPlayerAlive(client))
-	{
-		CPrintToChat(client, "%s You must be alive to choose a trail!", CHAT_PREFIX);
 		return Plugin_Handled;
 	}
 	
 	if(gB_AdminsOnly && !CheckCommandAccess(client, "sm_trails_override", ADMFLAG_RESERVATION))
 	{
-		CPrintToChat(client, "%s Only admins may use this command.", CHAT_PREFIX);
+		PrintCenterText(client, "Only admins may use this command.");
 		return Plugin_Handled;
 	}
 	
 	Menu menu = new Menu(Menu_Handler);
-	menu.SetTitle("Choose Trail Color:");
+	menu.SetTitle("Choose a trail:");
 	
-	menu.AddItem("0", "NONE", (gI_SelectedColor[client] == 0)? ITEMDRAW_DISABLED:ITEMDRAW_DEFAULT);
-	menu.AddItem("1", "Red", (gI_SelectedColor[client] == 1)? ITEMDRAW_DISABLED:ITEMDRAW_DEFAULT);
-	menu.AddItem("2", "Orange", (gI_SelectedColor[client] == 2)? ITEMDRAW_DISABLED:ITEMDRAW_DEFAULT);
-	menu.AddItem("3", "Yellow", (gI_SelectedColor[client] == 3)? ITEMDRAW_DISABLED:ITEMDRAW_DEFAULT);
-	menu.AddItem("4", "Lime", (gI_SelectedColor[client] == 4)? ITEMDRAW_DISABLED:ITEMDRAW_DEFAULT);
-	menu.AddItem("5", "Green", (gI_SelectedColor[client] == 5)? ITEMDRAW_DISABLED:ITEMDRAW_DEFAULT);
-	menu.AddItem("6", "Emerald", (gI_SelectedColor[client] == 6)? ITEMDRAW_DISABLED:ITEMDRAW_DEFAULT);
-	menu.AddItem("7", "Cyan", (gI_SelectedColor[client] == 7)? ITEMDRAW_DISABLED:ITEMDRAW_DEFAULT);
-	menu.AddItem("8", "Light Blue", (gI_SelectedColor[client] == 8)? ITEMDRAW_DISABLED:ITEMDRAW_DEFAULT);
-	menu.AddItem("9", "Blue", (gI_SelectedColor[client] == 9)? ITEMDRAW_DISABLED:ITEMDRAW_DEFAULT);
-	menu.AddItem("10", "Purple", (gI_SelectedColor[client] == 10)? ITEMDRAW_DISABLED:ITEMDRAW_DEFAULT);
-	menu.AddItem("11", "Magenta", (gI_SelectedColor[client] == 11)? ITEMDRAW_DISABLED:ITEMDRAW_DEFAULT);
-	menu.AddItem("12", "Pink", (gI_SelectedColor[client] == 12)? ITEMDRAW_DISABLED:ITEMDRAW_DEFAULT);
-	menu.AddItem("13", "White", (gI_SelectedColor[client] == 13)? ITEMDRAW_DISABLED:ITEMDRAW_DEFAULT);
-	
-	menu.AddItem("x", "", ITEMDRAW_SPACER);
-	menu.AddItem("14", "Velocity", (gI_SelectedColor[client] == 14)? ITEMDRAW_DISABLED:ITEMDRAW_DEFAULT);
-	menu.AddItem("15", "Spectrum", (gI_SelectedColor[client] == 15)? ITEMDRAW_DISABLED:ITEMDRAW_DEFAULT);
-	menu.AddItem("16", "Wave", (gI_SelectedColor[client] == 16)? ITEMDRAW_DISABLED:ITEMDRAW_DEFAULT);
+	for(int i = 0; i < gI_TrailAmount; i++)
+	{
+		char[] sInfo = new char[16];
+		IntToString(i, sInfo, 16);
+		
+		if(StrEqual(gS_TrailTitle[i], "/EMPTY/"))
+		{
+			menu.AddItem("", "", ITEMDRAW_SPACER);
+		}
+		else
+		{
+			menu.AddItem(sInfo, gS_TrailTitle[i], (gI_SelectedTrail[client] == i)? ITEMDRAW_DISABLED:ITEMDRAW_DEFAULT);
+		}
+	}
 	
 	menu.ExitButton = true;
 	menu.Display(client, 20);
@@ -167,12 +240,11 @@ public int Menu_Handler(Menu menu, MenuAction action, int param1, int param2)
 {
 	if(action == MenuAction_Select)
 	{
-		char[] info = new char[16];
-		menu.GetItem(param2, info, 16);
+		char[] sInfo = new char[16];
+		menu.GetItem(param2, sInfo, 16);
 		
-		MenuSelection(param1, info);
+		MenuSelection(param1, sInfo);
 	}
-	
 	else if(action == MenuAction_End)
 	{
 		delete menu;
@@ -183,192 +255,104 @@ public int Menu_Handler(Menu menu, MenuAction action, int param1, int param2)
 
 void MenuSelection(int client, char[] info)
 {
-	int choice;
-	char[] color = new char[32];
+	int choice = StringToInt(info);
 	
-	if(StrEqual(info, "1"))
+	int color[3];
+	color[0] = gI_TrailSettings[choice][iRedChannel];
+	color[1] = gI_TrailSettings[choice][iGreenChannel];
+	color[2] = gI_TrailSettings[choice][iBlueChannel];
+	
+	char[] sHexColor = new char[16];
+	FormatEx(sHexColor, 16, "#%02x%02x%02x", color[0], color[1], color[2]);
+	
+	if(choice == 0)
 	{
-		choice = 1;
-		FormatEx(color, 32, "{darkred}RED{default}");
-		PrintTrailMessage(client, choice, color);
-		gI_SelectedColor[client] = choice;
+		PrintCenterText(client, "Your trail is now <font color='#FF0000'>DISABLED</font>.");
 	}
-	
-	else if(StrEqual(info, "2"))
-	{
-		choice = 2;
-		FormatEx(color, 32, "{orange}ORANGE{default}");
-		PrintTrailMessage(client, choice, color);
-		gI_SelectedColor[client] = choice;
-	}
-	
-	else if(StrEqual(info, "3"))
-	{
-		choice = 3;
-		FormatEx(color, 32, "{yellow}YELLOW{default}");
-		PrintTrailMessage(client, choice, color);
-		gI_SelectedColor[client] = choice;
-	}
-	
-	else if(StrEqual(info, "4"))
-	{
-		choice = 4;
-		FormatEx(color, 32, "{lime}LIME{default}");
-		PrintTrailMessage(client, choice, color);
-		gI_SelectedColor[client] = choice;
-	}
-	
-	else if(StrEqual(info, "5"))
-	{
-		choice = 5;
-		FormatEx(color, 32, "{green}GREEN{default}");
-		PrintTrailMessage(client, choice, color);
-		gI_SelectedColor[client] = choice;
-	}
-	
-	else if(StrEqual(info, "6"))
-	{
-		choice = 6;
-		FormatEx(color, 32, "{olive}EMERALD{default}");
-		PrintTrailMessage(client, choice, color);
-		gI_SelectedColor[client] = choice;
-	}
-	
-	else if(StrEqual(info, "7"))
-	{
-		choice = 7;
-		FormatEx(color, 32, "{blue}CYAN{default}");
-		PrintTrailMessage(client, choice, color);
-		gI_SelectedColor[client] = choice;
-	}
-	
-	else if(StrEqual(info, "8"))
-	{
-		choice = 8;
-		FormatEx(color, 32, "{lightblue}LIGHT BLUE{default}");
-		PrintTrailMessage(client, choice, color);
-		gI_SelectedColor[client] = choice;
-	}
-	
-	else if(StrEqual(info, "9"))
-	{
-		choice = 9;
-		FormatEx(color, 32, "{darkblue}BLUE{default}");
-		PrintTrailMessage(client, choice, color);
-		gI_SelectedColor[client] = choice;
-	}
-	
-	else if(StrEqual(info, "10"))
-	{
-		choice = 10;
-		FormatEx(color, 32, "{purple}PURPLE{default}");
-		PrintTrailMessage(client, choice, color);
-		gI_SelectedColor[client] = choice;
-	}
-	
-	else if(StrEqual(info, "11"))
-	{
-		choice = 11;
-		FormatEx(color, 32, "{orchid}MAGENTA{default}");
-		PrintTrailMessage(client, choice, color);
-		gI_SelectedColor[client] = choice;
-	}
-	
-	else if(StrEqual(info, "12"))
-	{
-		choice = 12;
-		FormatEx(color, 32, "{lightred}PINK{default}");
-		PrintTrailMessage(client, choice, color);
-		gI_SelectedColor[client] = choice;
-	}
-	
-	else if(StrEqual(info, "13"))
-	{
-		choice = 13;
-		FormatEx(color, 32, "{grey2}WHITE{default}");
-		PrintTrailMessage(client, choice, color);
-		gI_SelectedColor[client] = choice;
-	}
-	
-	else if(StrEqual(info, "14"))
-	{
-		choice = 14;
-		FormatEx(color, 32, "{darkred}Velocity {green}Trail");
-		PrintSpecialMessage(client, choice, color);
-		gI_SelectedColor[client] = choice;
-	}
-	
-	else if(StrEqual(info, "15"))
-	{
-		choice = 15;
-		FormatEx(color, 32, "{darkred}Spectrum {green}Cycle");
-		PrintSpecialMessage(client, choice, color);
-		
-		gB_RedToYellow[client] = true;
-		gI_SelectedColor[client] = choice;
-	}
-	
-	else if(StrEqual(info, "16"))
-	{
-		choice = 16;
-		FormatEx(color, 32, "{darkred}Wave {green}Trail");
-		PrintSpecialMessage(client, choice, color);
-		
-		gB_RedToYellow[client] = true;
-		gI_SelectedColor[client] = choice;
-	}
-	
 	else
 	{
-		if(gI_SelectedColor[client] != 0)
+		if(gI_SelectedTrail[client] == 0)
 		{
-			CPrintToChat(client, "%s Your trail is now {darkred}DISABLED{default}.", CHAT_PREFIX);
+			PrintCenterText(client, "Your trail is now <font color='#00FF00'>ENABLED</font>.\nYour beam color is: <font color='%s'>%s</font>.", sHexColor, gS_TrailTitle[choice]);
 		}
-		
-		gI_SelectedColor[client] = 0;
-	}
-}
-
-void PrintTrailMessage(int client, int choice, char[] color)
-{
-	if(gI_SelectedColor[client] == 0)
-	{
-		CPrintToChat(client, "%s Your trail is now {green}ENABLED{default}.", CHAT_PREFIX);
-		CPrintToChat(client, "{default}Your beam color is %s.", color);
+		else
+		{
+			PrintCenterText(client, "Your beam color is now: <font color='%s'>%s</font>.", sHexColor, gS_TrailTitle[choice]);
+		}
 	}
 	
-	if(gI_SelectedColor[client] != 0 && gI_SelectedColor[client] != choice)
+	if(gI_TrailSettings[choice][iSpecialColor] == 1 || gI_TrailSettings[choice][iSpecialColor] == 2)
 	{
-		CPrintToChat(client, "%s Your trail color is now %s.", CHAT_PREFIX, color);
+		gI_CycleColor[client][0] = 0;
+		gI_CycleColor[client][1] = 0;
+		gI_CycleColor[client][2] = 0;
+		gB_RedToYellow[client] = true;
 	}
-}
-
-void PrintSpecialMessage(int client, int choice, char[] color)
-{
-	if(gI_SelectedColor[client] == 0)
+	else
 	{
-		CPrintToChat(client, "%s Your trail is now {green}ENABLED{default}.", CHAT_PREFIX);
-		CPrintToChat(client, "%s {darkblue}ENABLED{default}.", color);
+		gB_RedToYellow[client] = false;
+		gB_YellowToGreen[client] = false;
+		gB_GreenToCyan[client] = false;
+		gB_CyanToBlue[client] = false;
+		gB_BlueToMagenta[client] = false;
+		gB_MagentaToRed[client] = false;
 	}
 	
-	if(gI_SelectedColor[client] != 0 && gI_SelectedColor[client] != choice)
-	{
-		CPrintToChat(client, "%s %s {darkblue}ENABLED{default}.", CHAT_PREFIX, color);
-	}
+	gI_SelectedTrail[client] = choice;
+	SetClientCookie(client, gH_TrailCookie, info);
 }
 
 public Action OnPlayerRunCmd(int client)
 {
-	float origin[3];
-	GetClientAbsOrigin(client, origin);
+	if(gB_CheapTrails)
+	{
+		ForceCheapTrails(client);
+	}
+	else
+	{
+		ForceExpensiveTrails(client);
+	}
 	
-	CreatePlayerTrail(client, origin);
-	gF_LastPosition[client] = origin;
+	return Plugin_Continue;
+}
+
+void ForceCheapTrails(int client)
+{
+	if(gI_TickCounter[client] == 0)
+	{
+		float fOrigin[3];
+		GetClientAbsOrigin(client, fOrigin);
+		
+		gF_PlayerOrigin[client][0] = fOrigin[0];
+		gF_PlayerOrigin[client][1] = fOrigin[1];
+		gF_PlayerOrigin[client][2] = fOrigin[2];
+	}
+	
+	gI_TickCounter[client]++;
+	
+	if(gI_TickCounter[client] <= 1)
+	{
+		return; //Skip 1 frame. That's 50% less sprites to render.
+	}
+	
+	gI_TickCounter[client] = 0;
+	
+	CreatePlayerTrail(client, gF_PlayerOrigin[client]);
+	gF_LastPosition[client] = gF_PlayerOrigin[client];
+}
+
+void ForceExpensiveTrails(int client)
+{
+	float fOrigin[3];
+	GetClientAbsOrigin(client, fOrigin);
+	
+	CreatePlayerTrail(client, fOrigin);
+	gF_LastPosition[client] = fOrigin;
 }
 
 void CreatePlayerTrail(int client, float origin[3])
 {
-	if(!gB_PluginEnabled || !IsPlayerAlive(client) || gB_TouchingTrigger[client])
+	if(!gB_PluginEnabled || !IsPlayerAlive(client) || gI_SelectedTrail[client] == 0 || gB_StopPlugin[client])
 	{
 		return;
 	}
@@ -378,123 +362,63 @@ void CreatePlayerTrail(int client, float origin[3])
 		return;
 	}
 	
-	float pos1[3];
-	pos1[0] = origin[0];
-	pos1[1] = origin[1];
-	pos1[2] = origin[2] + 5.0;
+	float fFirstPos[3];
+	fFirstPos[0] = origin[0];
+	fFirstPos[1] = origin[1];
+	fFirstPos[2] = origin[2] + 5.0;
 	
-	float pos2[3];
-	pos2[0] = gF_LastPosition[client][0];
-	pos2[1] = gF_LastPosition[client][1];
-	pos2[2] = gF_LastPosition[client][2] + 5.0;
+	float fSecondPos[3];
+	fSecondPos[0] = gF_LastPosition[client][0];
+	fSecondPos[1] = gF_LastPosition[client][1];
+	fSecondPos[2] = gF_LastPosition[client][2] + 5.0;
 	
-	int rgba[4];
-	rgba[3] = TRAIL_OPACITY;
+	int choice = gI_SelectedTrail[client];
 	
+	int color[4];
+	color[3] = gI_TrailSettings[choice][iAlphaChannel];
 	int stepsize;
 	
-	switch(gI_SelectedColor[client])
+	if(gI_TrailSettings[choice][iSpecialColor] == 1) // Spectrum trail
 	{
-		case 1: // Red trail
-		{
-			rgba[0] = 255; rgba[1] = 0; rgba[2] = 0;
-		}
+		stepsize = 1;
+		DrawSpectrumTrail(client, stepsize);
 		
-		case 2: // Orange trail
-		{
-			rgba[0] = 255; rgba[1] = 128; rgba[2] = 0;
-		}
+		color[0] = gI_CycleColor[client][0];
+		color[1] = gI_CycleColor[client][1];
+		color[2] = gI_CycleColor[client][2];
 		
-		case 3: // Yellow trail
-		{
-			rgba[0] = 255; rgba[1] = 255; rgba[2] = 0;
-		}
+		PrintHintText(client, "%i\n%i\n%i", gI_CycleColor[client][0], gI_CycleColor[client][1], gI_CycleColor[client][2]);
+	}
+	else if(gI_TrailSettings[choice][iSpecialColor] == 2) // Wave trail
+	{
+		stepsize = 15;
+		DrawSpectrumTrail(client, stepsize);
 		
-		case 4: // Lime trail
-		{
-			rgba[0] = 128; rgba[1] = 255; rgba[2] = 0;
-		}
+		color[0] = gI_CycleColor[client][0];
+		color[1] = gI_CycleColor[client][1];
+		color[2] = gI_CycleColor[client][2];
+	}
+	else if(gI_TrailSettings[choice][iSpecialColor] == 3) // Velocity trail
+	{
+		float fAbsVelocity[3];
+		GetEntPropVector(client, Prop_Data, "m_vecAbsVelocity", fAbsVelocity);
+		float fCurrentSpeed = SquareRoot(Pow(fAbsVelocity[0], 2.0) + Pow(fAbsVelocity[1], 2.0));
 		
-		case 5: // Green trail
-		{
-			rgba[0] = 0; rgba[1] = 255; rgba[2] = 0;
-		}
+		DrawVelocityTrail(client, fCurrentSpeed);
 		
-		case 6: // Emerald trail
-		{
-			rgba[0] = 0; rgba[1] = 255; rgba[2] = 128;
-		}
-		
-		case 7: // Cyan trail
-		{
-			rgba[0] = 0; rgba[1] = 255; rgba[2] = 255;
-		}
-		
-		case 8: // Light blue trail
-		{
-			rgba[0] = 0; rgba[1] = 128; rgba[2] = 255;
-		}
-		
-		case 9: // Blue trail
-		{
-			rgba[0] = 0; rgba[1] = 0; rgba[2] = 255;
-		}
-		
-		case 10: // Purple trail
-		{
-			rgba[0] = 128; rgba[1] = 0; rgba[2] = 255;
-		}
-		
-		case 11: // Magenta trail
-		{
-			rgba[0] = 255; rgba[1] = 0; rgba[2] = 255;
-		}
-		
-		case 12: // Pink trail
-		{
-			rgba[0] = 255; rgba[1] = 64; rgba[2] = 128;
-		}
-		
-		case 13: // White trail
-		{
-			rgba[0] = 255; rgba[1] = 255; rgba[2] = 255;
-		}
-		
-		case 14: // Velocity trail
-		{
-			float fAbsVelocity[3];
-			GetEntPropVector(client, Prop_Data, "m_vecAbsVelocity", fAbsVelocity);
-			float fCurrentSpeed = SquareRoot(Pow(fAbsVelocity[0], 2.0) + Pow(fAbsVelocity[1], 2.0));
-			
-			DrawVelocityTrail(client, fCurrentSpeed);
-			
-			rgba[0] = gI_CycleColor[client][0]; rgba[1] = gI_CycleColor[client][1]; rgba[2] = gI_CycleColor[client][2];
-		}
-		
-		case 15: // Spectrum trail
-		{
-			stepsize = 1;
-			DrawSpectrumTrail(client, stepsize);
-			
-			rgba[0] = gI_CycleColor[client][0]; rgba[1] = gI_CycleColor[client][1]; rgba[2] = gI_CycleColor[client][2];
-		}
-		
-		case 16: // Wave trail
-		{
-			stepsize = 15;
-			DrawSpectrumTrail(client, stepsize);
-			
-			rgba[0] = gI_CycleColor[client][0]; rgba[1] = gI_CycleColor[client][1]; rgba[2] = gI_CycleColor[client][2];
-		}
-		
-		default: // None
-		{
-			return;
-		}
+		color[0] = gI_CycleColor[client][0];
+		color[1] = gI_CycleColor[client][1];
+		color[2] = gI_CycleColor[client][2];
+	}
+	else
+	{
+		color[0] = gI_TrailSettings[choice][iRedChannel];
+		color[1] = gI_TrailSettings[choice][iGreenChannel];
+		color[2] = gI_TrailSettings[choice][iBlueChannel];
 	}
 	
-	TE_SetupBeamPoints(pos1, pos2, gI_BeamSprite, 0, 0, 0, gF_BeamLife, gF_BeamWidth, gF_BeamWidth, 10, 0.0, rgba, 0);
-	TE_SendToAll(0.0);
+	TE_SetupBeamPoints(fFirstPos, fSecondPos, gI_BeamSprite, 0, 0, 0, gF_BeamLife, gF_BeamWidth, gF_BeamWidth, 10, 0.0, color, 0);
+	TE_SendToAll();
 }
 
 void DrawSpectrumTrail(int client, int stepsize)
@@ -555,51 +479,44 @@ void DrawSpectrumTrail(int client, int stepsize)
 	}
 }
 
-void DrawVelocityTrail(int client, float fCurrentSpeed)
+void DrawVelocityTrail(int client, float currentspeed)
 {
 	int stepsize;
 	
-	if(fCurrentSpeed <= 255.0)
+	if(currentspeed <= 255.0)
 	{
 		gI_CycleColor[client][0] = 0; gI_CycleColor[client][1] = 0; gI_CycleColor[client][2] = 255;
 	}
-	
-	else if(fCurrentSpeed > 255.0 && fCurrentSpeed <= 510.0)
+	else if(currentspeed > 255.0 && currentspeed <= 510.0)
 	{
-		stepsize = RoundToFloor(fCurrentSpeed) - 255;
+		stepsize = RoundToFloor(currentspeed) - 255;
 		gI_CycleColor[client][0] = 0; gI_CycleColor[client][1] = stepsize; gI_CycleColor[client][2] = 255;
 	}
-	
-	else if(fCurrentSpeed > 510.0 && fCurrentSpeed <= 765.0)
+	else if(currentspeed > 510.0 && currentspeed <= 765.0)
 	{
-		stepsize = RoundToFloor(-fCurrentSpeed) + 510;
+		stepsize = RoundToFloor(-currentspeed) + 510;
 		gI_CycleColor[client][0] = 0; gI_CycleColor[client][1] = 255; gI_CycleColor[client][2] = stepsize;
 	}
-	
-	else if(fCurrentSpeed > 765.0 && fCurrentSpeed <= 1020.0)
+	else if(currentspeed > 765.0 && currentspeed <= 1020.0)
 	{
-		stepsize = RoundToFloor(fCurrentSpeed) - 765;
+		stepsize = RoundToFloor(currentspeed) - 765;
 		gI_CycleColor[client][0] = stepsize; gI_CycleColor[client][1] = 255; gI_CycleColor[client][2] = 0;
 	}
-	
-	else if(fCurrentSpeed > 1020.0 && fCurrentSpeed <= 1275.0)
+	else if(currentspeed > 1020.0 && currentspeed <= 1275.0)
 	{
-		stepsize = RoundToFloor(-fCurrentSpeed) + 1020;
+		stepsize = RoundToFloor(-currentspeed) + 1020;
 		gI_CycleColor[client][0] = 255; gI_CycleColor[client][1] = stepsize; gI_CycleColor[client][2] = 0;
 	}
-	
-	else if(fCurrentSpeed > 1275.0 && fCurrentSpeed <= 1530.0)
+	else if(currentspeed > 1275.0 && currentspeed <= 1530.0)
 	{
-		stepsize = RoundToFloor(fCurrentSpeed) - 1275;
+		stepsize = RoundToFloor(currentspeed) - 1275;
 		gI_CycleColor[client][0] = 255; gI_CycleColor[client][1] = 0; gI_CycleColor[client][2] = stepsize;
 	}
-	
-	else if(fCurrentSpeed > 1530.0 && fCurrentSpeed <= 1660.0)
+	else if(currentspeed > 1530.0 && currentspeed <= 1655.0)
 	{
-		stepsize = RoundToFloor(-fCurrentSpeed) + 1530;
+		stepsize = RoundToFloor(-currentspeed) + 1530;
 		gI_CycleColor[client][0] = stepsize; gI_CycleColor[client][1] = 0; gI_CycleColor[client][2] = 255;
 	}
-	
 	else
 	{
 		gI_CycleColor[client][0] = 125; gI_CycleColor[client][1] = 0; gI_CycleColor[client][2] = 255;
@@ -615,12 +532,12 @@ public int StartTouchTrigger(const char[] output, int entity, int client, float 
 		return;
 	}
 	
-	if(!IsClientInGame(client) || !IsPlayerAlive(client))
+	if(!gB_PluginEnabled || !IsClientInGame(client) || !IsPlayerAlive(client))
 	{
 		return;
 	}
 	
-	gB_TouchingTrigger[client] = true;
+	gB_StopPlugin[client] = true;
 }
 
 public int EndTouchTrigger(const char[] output, int entity, int client, float delay)
@@ -630,16 +547,23 @@ public int EndTouchTrigger(const char[] output, int entity, int client, float de
 		return;
 	}
 	
-	if(!IsClientInGame(client) || !IsPlayerAlive(client))
+	if(!gB_PluginEnabled || !IsClientInGame(client) || !IsPlayerAlive(client))
 	{
 		return;
 	}
 	
-	CreateTimer(0.1, BlockOffTrigger, client, TIMER_FLAG_NO_MAPCHANGE);
+	CreateTimer(0.1, ResumePlugin, GetClientSerial(client), TIMER_FLAG_NO_MAPCHANGE);
 }
 
-public Action BlockOffTrigger(Handle timer, any client)
+public Action ResumePlugin(Handle timer, int data)
 {
-	gB_TouchingTrigger[client] = false;
+	int client = GetClientFromSerial(data);
+	gB_StopPlugin[client] = false;
 	return Plugin_Stop;
+}
+
+stock bool IsValidClient(int client, bool nobots = true)
+{
+	return (client >= 1 && client <= MaxClients && IsClientConnected(client) && IsClientInGame(client)
+			&& !IsClientSourceTV(client) && (nobots || !IsFakeClient(client)));
 }
