@@ -5,6 +5,8 @@
 #pragma newdecls required
 #pragma semicolon 1
 
+// #define DEBUG
+
 enum
 {
 	iRedChannel,
@@ -386,8 +388,6 @@ void CreatePlayerTrail(int client, float origin[3])
 		color[0] = gI_CycleColor[client][0];
 		color[1] = gI_CycleColor[client][1];
 		color[2] = gI_CycleColor[client][2];
-		
-		PrintHintText(client, "%i\n%i\n%i", gI_CycleColor[client][0], gI_CycleColor[client][1], gI_CycleColor[client][2]);
 	}
 	else if(gI_TrailSettings[choice][iSpecialColor] == 2) // Wave trail
 	{
@@ -416,6 +416,10 @@ void CreatePlayerTrail(int client, float origin[3])
 		color[1] = gI_TrailSettings[choice][iGreenChannel];
 		color[2] = gI_TrailSettings[choice][iBlueChannel];
 	}
+	
+	#if defined DEBUG
+	PrintHintText(client, "%i\n%i\n%i", color[0], color[1], color[2]);
+	#endif
 	
 	TE_SetupBeamPoints(fFirstPos, fSecondPos, gI_BeamSprite, 0, 0, 0, gF_BeamLife, gF_BeamWidth, gF_BeamWidth, 10, 0.0, color, 0);
 	TE_SendToAll();
