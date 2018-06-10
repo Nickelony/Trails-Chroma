@@ -111,12 +111,10 @@ public void OnPluginStart()
 	
 	for(int i = 1; i <= MaxClients; i++)
 	{
-		if(!AreClientCookiesCached(i))
+		if(AreClientCookiesCached(i))
 		{
-			continue;
+			OnClientCookiesCached(i);
 		}
-		
-		OnClientCookiesCached(i);
 	}
 }
 
@@ -145,6 +143,11 @@ public void OnClientCookiesCached(int client)
 	char[] sHidingCookie = new char[8];
 	GetClientCookie(client, gH_TrailHidingCookie, sHidingCookie, 8);
 	gB_HidingTrails[client] = StringToInt(sHidingCookie) == 1;
+	
+	if(IsValidClient(client) && !gB_HidingTrails[client] && aL_Clients.FindValue(client) == -1)
+	{
+		aL_Clients.Push(client);
+	}
 }
 
 public void OnMapStart()
@@ -397,7 +400,9 @@ void ForceExpensiveTrails(int client)
 
 void CreatePlayerTrail(int client, float origin[3])
 {
-	if(!gB_PluginEnabled || gI_SelectedTrail[client] == 0 || !IsPlayerAlive(client) || GetVectorDistance(origin, gF_LastPosition[client], false) > 50.0)
+	bool bClientTeleported = GetVectorDistance(origin, gF_LastPosition[client], false) > 50.0;
+	
+	if(!gB_PluginEnabled || gI_SelectedTrail[client] == 0 || !IsPlayerAlive(client) || bClientTeleported)
 	{
 		return;
 	}
@@ -417,11 +422,18 @@ void CreatePlayerTrail(int client, float origin[3])
 	fSecondPos[1] = gF_LastPosition[client][1];
 	fSecondPos[2] = gF_LastPosition[client][2] + 5.0;
 	
-	int choice = gI_SelectedTrail[client];
-	
 	int color[4];
+	GetClientTrailColors(client, color);
+	
+	TE_SetupBeamPoints(fFirstPos, fSecondPos, gI_BeamSprite, 0, 0, 0, gF_BeamLife, gF_BeamWidth, gF_BeamWidth, 10, 0.0, color, 0);
+	SendTempEntity(client);
+}
+
+int[] GetClientTrailColors(int client, int[] color)
+{
+	int choice = gI_SelectedTrail[client];
 	color[3] = gI_TrailSettings[choice][iAlphaChannel];
-	int stepsize;
+	int stepsize = 0;
 	
 	if(gI_TrailSettings[choice][iSpecialColor] == 1) // Spectrum trail
 	{
@@ -464,8 +476,7 @@ void CreatePlayerTrail(int client, float origin[3])
 	PrintHintText(client, "%i\n%i\n%i", color[0], color[1], color[2]);
 	#endif
 	
-	TE_SetupBeamPoints(fFirstPos, fSecondPos, gI_BeamSprite, 0, 0, 0, gF_BeamLife, gF_BeamWidth, gF_BeamWidth, 10, 0.0, color, 0);
-	SendTempEntity(client);
+	return color;
 }
 
 void SendTempEntity(int client)
@@ -572,7 +583,7 @@ void DrawSpectrumTrail(int client, int stepsize)
 
 void DrawVelocityTrail(int client, float currentspeed)
 {
-	int stepsize;
+	int stepsize = 0;
 	
 	if(currentspeed <= 255.0)
 	{
