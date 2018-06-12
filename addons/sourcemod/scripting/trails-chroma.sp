@@ -1,4 +1,6 @@
 #include <sourcemod>
+#include <tf2>
+#include <tf2_stocks>
 #include <clientprefs>
 #include <sdktools>
 
@@ -69,12 +71,14 @@ float gF_PlayerOrigin[MAXPLAYERS + 1][3];
 Handle gH_TrailSelectionCookie;
 Handle gH_TrailHidingCookie;
 
+EngineVersion gEV_Type = Engine_Unknown;
+
 public Plugin myinfo =
 {
 	name = "Trails Chroma",
 	author = "Nickelony",
 	description = "Adds colorful player trails with special effects.",
-	version = "2.1",
+	version = "2.2",
 	url = "steamcommunity.com/id/nickelony"
 }
 
@@ -108,6 +112,7 @@ public void OnPluginStart()
 	gH_TrailHidingCookie = RegClientCookie("trail_hiding", "Trail Hiding Cookie", CookieAccess_Protected);
 	
 	aL_Clients = new ArrayList();
+	gEV_Type = GetEngineVersion();
 	
 	for(int i = 1; i <= MaxClients; i++)
 	{
@@ -234,13 +239,30 @@ public Action Command_Hide(int client, int args)
 			aL_Clients.Erase(index);
 		}
 		
-		PrintCenterText(client, "Other players' trails are now <font color='#FF00FF'>Hidden</font>.");
+		if(gEV_Type == Engine_CSGO)
+		{
+			PrintCenterText(client, "Other players' trails are now <font color='#FF00FF'>Hidden</font>.");
+		}
+		else
+		{
+			PrintCenterText(client, "Other players' trails are now Hidden.");
+		}
+		
 		SetClientCookie(client, gH_TrailSelectionCookie, "0");
 	}
 	else
 	{
 		aL_Clients.Push(client);
-		PrintCenterText(client, "Other players' trails are now <font color='#FFFF00'>Visible</font>.");
+		
+		if(gEV_Type == Engine_CSGO)
+		{
+			PrintCenterText(client, "Other players' trails are now <font color='#FFFF00'>Visible</font>.");
+		}
+		else
+		{
+			PrintCenterText(client, "Other players' trails are now Visible.");
+		}
+		
 		SetClientCookie(client, gH_TrailSelectionCookie, "1");
 	}
 	
@@ -315,17 +337,38 @@ void MenuSelection(int client, char[] info)
 	
 	if(choice == 0)
 	{
-		PrintCenterText(client, "Your trail is now <font color='#FF0000'>DISABLED</font>.");
+		if(gEV_Type == Engine_CSGO)
+		{
+			PrintCenterText(client, "Your trail is now <font color='#FF0000'>DISABLED</font>.");
+		}
+		else
+		{
+			PrintCenterText(client, "Your trail is now DISABLED.");
+		}
 	}
 	else
 	{
 		if(gI_SelectedTrail[client] == 0)
 		{
-			PrintCenterText(client, "Your trail is now <font color='#00FF00'>ENABLED</font>.\nYour beam color is: <font color='%s'>%s</font>.", sHexColor, gS_TrailTitle[choice]);
+			if(gEV_Type == Engine_CSGO)
+			{
+				PrintCenterText(client, "Your trail is now <font color='#00FF00'>ENABLED</font>.\nYour beam color is: <font color='%s'>%s</font>.", sHexColor, gS_TrailTitle[choice]);
+			}
+			else
+			{
+				PrintCenterText(client, "Your trail is now ENABLED.\nYour beam color is: %s.", gS_TrailTitle[choice]);
+			}
 		}
 		else
 		{
-			PrintCenterText(client, "Your beam color is now: <font color='%s'>%s</font>.", sHexColor, gS_TrailTitle[choice]);
+			if(gEV_Type == Engine_CSGO)
+			{
+				PrintCenterText(client, "Your beam color is now: <font color='%s'>%s</font>.", sHexColor, gS_TrailTitle[choice]);
+			}
+			else
+			{
+				PrintCenterText(client, "Your beam color is now: %s.", gS_TrailTitle[choice]);
+			}
 		}
 	}
 	
@@ -402,7 +445,7 @@ void CreatePlayerTrail(int client, float origin[3])
 {
 	bool bClientTeleported = GetVectorDistance(origin, gF_LastPosition[client], false) > 50.0;
 	
-	if(!gB_PluginEnabled || gI_SelectedTrail[client] == 0 || !IsPlayerAlive(client) || bClientTeleported)
+	if(!gB_PluginEnabled || gI_SelectedTrail[client] == 0 || !IsPlayerAlive(client) || TF2_IsPlayerInCondition(client, TFCond_Cloaked) || bClientTeleported)
 	{
 		return;
 	}
