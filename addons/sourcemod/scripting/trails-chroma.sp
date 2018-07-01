@@ -7,16 +7,16 @@
 #pragma newdecls required
 #pragma semicolon 1
 
+#define TRAIL_NONE -1
 // #define DEBUG
 
-enum
+enum TrailSettings
 {
 	iRedChannel,
 	iGreenChannel,
 	iBlueChannel,
 	iSpecialColor,
-	iAlphaChannel,
-	SETTINGS_SIZE
+	iAlphaChannel
 }
 
 /* CVars */
@@ -27,7 +27,7 @@ ConVar gCV_AllowHide = null;
 ConVar gCV_CheapTrails = null;
 ConVar gCV_BeamLife = null;
 ConVar gCV_BeamWidth = null;
-ConVar gCV_OnRespawn = null;
+ConVar gCV_RespawnDisable = null;
 
 /* Cached CVars */
 
@@ -37,12 +37,12 @@ bool gB_AllowHide = true;
 bool gB_CheapTrails = false;
 float gF_BeamLife = 1.5;
 float gF_BeamWidth = 1.5;
-bool gB_OnRespawn = false;
+bool gB_RespawnDisable = false;
 
 /* Global variables */
 
 int gI_BeamSprite;
-int gI_SelectedTrail[MAXPLAYERS + 1];
+int gI_SelectedTrail[MAXPLAYERS + 1] = {TRAIL_NONE, ...};
 float gF_LastPosition[MAXPLAYERS + 1][3];
 
 // Hiding trails globals
@@ -52,7 +52,7 @@ ArrayList aL_Clients = null;
 // KeyValue globals
 int gI_TrailAmount;
 char gS_TrailTitle[128][128];
-int gI_TrailSettings[128][SETTINGS_SIZE];
+int gI_TrailSettings[128][TrailSettings];
 
 // Spectrum cycle globals
 int gI_CycleColor[MAXPLAYERS + 1][4];
@@ -68,7 +68,7 @@ int gI_TickCounter[MAXPLAYERS + 1];
 float gF_PlayerOrigin[MAXPLAYERS + 1][3];
 
 // Cookie handles
-Handle gH_TrailSelectionCookie;
+Handle gH_TrailChoiceCookie;
 Handle gH_TrailHidingCookie;
 
 EngineVersion gEV_Type = Engine_Unknown;
@@ -78,7 +78,7 @@ public Plugin myinfo =
 	name = "Trails Chroma",
 	author = "Nickelony",
 	description = "Adds colorful player trails with special effects.",
-	version = "2.2",
+	version = "2.4",
 	url = "steamcommunity.com/id/nickelony"
 }
 
@@ -91,12 +91,12 @@ public void OnPluginStart()
 	RegConsoleCmd("sm_hide", Command_Hide, "Hides other players' trails.");
 	
 	gCV_PluginEnabled = CreateConVar("sm_trails_enable", "1", "Enable or Disable all features of the plugin.", 0, true, 0.0, true, 1.0);
-	gCV_AdminsOnly = CreateConVar("sm_trails_adminsonly", "1", "Enable trails for admins only.", 0, true, 0.0, true, 1.0);
+	gCV_AdminsOnly = CreateConVar("sm_trails_admins_only", "1", "Enable trails for admins only.", 0, true, 0.0, true, 1.0);
 	gCV_AllowHide = CreateConVar("sm_trails_allow_hide", "1", "Allow hiding other players' trails.", FCVAR_NOTIFY, true, 0.0, true, 1.0);
 	gCV_CheapTrails = CreateConVar("sm_trails_cheap", "0", "Force cheap trails (lower quality in exchange for more FPS).", FCVAR_NOTIFY, true, 0.0, true, 1.0);
 	gCV_BeamLife = CreateConVar("sm_trails_life", "1.5", "Time duration of the trails.", FCVAR_NOTIFY, true, 0.0);
 	gCV_BeamWidth = CreateConVar("sm_trails_width", "1.5", "Width of the trail beams.", FCVAR_NOTIFY, true, 0.0);
-	gCV_OnRespawn = CreateConVar("sm_trails_respawn", "0", "Disable the player's trail after respawning.", FCVAR_NOTIFY, true, 0.0, true, 1.0);
+	gCV_RespawnDisable = CreateConVar("sm_trails_respawn_disable", "0", "Disable the player's trail after respawning.", FCVAR_NOTIFY, true, 0.0, true, 1.0);
 	
 	gCV_PluginEnabled.AddChangeHook(OnConVarChanged);
 	gCV_AdminsOnly.AddChangeHook(OnConVarChanged);
@@ -104,11 +104,11 @@ public void OnPluginStart()
 	gCV_CheapTrails.AddChangeHook(OnConVarChanged);
 	gCV_BeamLife.AddChangeHook(OnConVarChanged);
 	gCV_BeamWidth.AddChangeHook(OnConVarChanged);
-	gCV_OnRespawn.AddChangeHook(OnConVarChanged);
+	gCV_RespawnDisable.AddChangeHook(OnConVarChanged);
 	
 	AutoExecConfig();
 	
-	gH_TrailSelectionCookie = RegClientCookie("trail_selection", "Trail Selection Cookie", CookieAccess_Protected);
+	gH_TrailChoiceCookie = RegClientCookie("trail_choice", "Trail Choice Cookie", CookieAccess_Protected);
 	gH_TrailHidingCookie = RegClientCookie("trail_hiding", "Trail Hiding Cookie", CookieAccess_Protected);
 	
 	aL_Clients = new ArrayList();
@@ -131,7 +131,7 @@ public void OnConVarChanged(ConVar convar, const char[] oldValue, const char[] n
 	gB_CheapTrails = gCV_CheapTrails.BoolValue;
 	gF_BeamLife = gCV_BeamLife.FloatValue;
 	gF_BeamWidth = gCV_BeamWidth.FloatValue;
-	gB_OnRespawn = gCV_OnRespawn.BoolValue;
+	gB_RespawnDisable = gCV_RespawnDisable.BoolValue;
 }
 
 public void OnClientCookiesCached(int client)
@@ -141,15 +141,26 @@ public void OnClientCookiesCached(int client)
 		return;
 	}
 	
-	char[] sSelectionCookie = new char[8];
-	GetClientCookie(client, gH_TrailSelectionCookie, sSelectionCookie, 8);
-	gI_SelectedTrail[client] = StringToInt(sSelectionCookie);
+	char[] sChoiceCookie = new char[8];
+	GetClientCookie(client, gH_TrailChoiceCookie, sChoiceCookie, 8);
+	
+	bool bNoAccess = gB_AdminsOnly && !CheckCommandAccess(client, "sm_auras_override", ADMFLAG_RESERVATION);
+	
+	if(sChoiceCookie[0] == '\0' || bNoAccess) // If the cookie is empty or the player doesn't have access
+	{
+		IntToString(TRAIL_NONE, sChoiceCookie, 8);
+		SetClientCookie(client, gH_TrailChoiceCookie, sChoiceCookie);
+	}
+	else
+	{
+		gI_SelectedTrail[client] = StringToInt(sChoiceCookie);
+	}
 	
 	char[] sHidingCookie = new char[8];
 	GetClientCookie(client, gH_TrailHidingCookie, sHidingCookie, 8);
 	gB_HidingTrails[client] = StringToInt(sHidingCookie) == 1;
 	
-	if(IsValidClient(client) && !gB_HidingTrails[client] && aL_Clients.FindValue(client) == -1)
+	if(IsValidClient(client) && !gB_HidingTrails[client] && aL_Clients.FindValue(client) == -1) // Only works after reloading the plugin
 	{
 		aL_Clients.Push(client);
 	}
@@ -177,12 +188,12 @@ public void OnPlayerSpawn(Event event, const char[] name, bool dontBroadcast)
 		return;
 	}
 	
-	if(!gB_HidingTrails[client] && aL_Clients.FindValue(client) == -1)
+	if(!gB_HidingTrails[client] && aL_Clients.FindValue(client) == -1) // If the client isn't hiding trails, but somehow isn't on the list
 	{
 		aL_Clients.Push(client);
 	}
 	
-	if(gB_OnRespawn)
+	if(gB_RespawnDisable) // Reset trail on respawn
 	{
 		gI_SelectedTrail[client] = 0;
 	}
@@ -228,27 +239,27 @@ public Action Command_Hide(int client, int args)
 		return Plugin_Handled;
 	}
 	
-	gB_HidingTrails[client] = !gB_HidingTrails[client];
+	gB_HidingTrails[client] = !gB_HidingTrails[client]; // Toggle it
 	
 	if(gB_HidingTrails[client])
 	{
 		int index = aL_Clients.FindValue(client);
 		
-		if(index != -1)
+		if(index != -1) // If the index is valid and the player was found on the list
 		{
 			aL_Clients.Erase(index);
 		}
 		
-		if(gEV_Type == Engine_CSGO)
+		if(gEV_Type == Engine_CSGO) // CS:GO supports HTML
 		{
-			PrintCenterText(client, "Other players' trails are now <font color='#FF00FF'>Hidden</font>.");
+			PrintCenterText(client, "Other players' trails are now <font color='#FF00FF' face=''>Hidden</font>.");
 		}
 		else
 		{
 			PrintCenterText(client, "Other players' trails are now Hidden.");
 		}
 		
-		SetClientCookie(client, gH_TrailSelectionCookie, "0");
+		SetClientCookie(client, gH_TrailHidingCookie, "0");
 	}
 	else
 	{
@@ -256,14 +267,14 @@ public Action Command_Hide(int client, int args)
 		
 		if(gEV_Type == Engine_CSGO)
 		{
-			PrintCenterText(client, "Other players' trails are now <font color='#FFFF00'>Visible</font>.");
+			PrintCenterText(client, "Other players' trails are now <font color='#FFFF00' face=''>Visible</font>.");
 		}
 		else
 		{
 			PrintCenterText(client, "Other players' trails are now Visible.");
 		}
 		
-		SetClientCookie(client, gH_TrailSelectionCookie, "1");
+		SetClientCookie(client, gH_TrailHidingCookie, "1");
 	}
 	
 	return Plugin_Handled;
@@ -282,17 +293,27 @@ public Action Command_Trail(int client, int args)
 		return Plugin_Handled;
 	}
 	
+	return OpenTrailMenu(client, 0);
+}
+
+Action OpenTrailMenu(int client, int page)
+{
 	Menu menu = new Menu(Menu_Handler);
-	menu.SetTitle("Choose a trail:");
+	menu.SetTitle("Choose a trail:\n ");
+	
+	char[] sNone = new char[8];
+	IntToString(TRAIL_NONE, sNone, 8);
+	
+	menu.AddItem(sNone, "None", (gI_SelectedTrail[client] == TRAIL_NONE)? ITEMDRAW_DISABLED:ITEMDRAW_DEFAULT);
 	
 	for(int i = 0; i < gI_TrailAmount; i++)
 	{
-		char[] sInfo = new char[16];
-		IntToString(i, sInfo, 16);
+		char[] sInfo = new char[8];
+		IntToString(i, sInfo, 8);
 		
 		if(StrEqual(gS_TrailTitle[i], "/empty/") || StrEqual(gS_TrailTitle[i], "/EMPTY/") || StrEqual(gS_TrailTitle[i], "{empty}") || StrEqual(gS_TrailTitle[i], "{EMPTY}"))
 		{
-			menu.AddItem("", "", ITEMDRAW_SPACER);
+			menu.AddItem("", "", ITEMDRAW_SPACER); // Empty line support
 		}
 		else
 		{
@@ -301,7 +322,7 @@ public Action Command_Trail(int client, int args)
 	}
 	
 	menu.ExitButton = true;
-	menu.Display(client, 20);
+	menu.DisplayAt(client, page, 60);
 	
 	return Plugin_Handled;
 }
@@ -310,10 +331,11 @@ public int Menu_Handler(Menu menu, MenuAction action, int param1, int param2)
 {
 	if(action == MenuAction_Select)
 	{
-		char[] sInfo = new char[16];
-		menu.GetItem(param2, sInfo, 16);
+		char[] sInfo = new char[8];
+		menu.GetItem(param2, sInfo, 8);
 		
 		MenuSelection(param1, sInfo);
+		OpenTrailMenu(param1, GetMenuSelectionPosition());
 	}
 	else if(action == MenuAction_End)
 	{
@@ -337,9 +359,9 @@ void MenuSelection(int client, char[] info)
 	
 	if(choice == 0)
 	{
-		if(gEV_Type == Engine_CSGO)
+		if(gEV_Type == Engine_CSGO) // CS:GO supports HTML
 		{
-			PrintCenterText(client, "Your trail is now <font color='#FF0000'>DISABLED</font>.");
+			PrintCenterText(client, "Your trail is now <font color='#FF0000' face=''>DISABLED</font>.");
 		}
 		else
 		{
@@ -352,7 +374,7 @@ void MenuSelection(int client, char[] info)
 		{
 			if(gEV_Type == Engine_CSGO)
 			{
-				PrintCenterText(client, "Your trail is now <font color='#00FF00'>ENABLED</font>.\nYour beam color is: <font color='%s'>%s</font>.", sHexColor, gS_TrailTitle[choice]);
+				PrintCenterText(client, "Your trail is now <font color='#00FF00' face=''>ENABLED</font>.\nYour beam color is: <font color='%s' face=''>%s</font>.", sHexColor, gS_TrailTitle[choice]);
 			}
 			else
 			{
@@ -363,7 +385,7 @@ void MenuSelection(int client, char[] info)
 		{
 			if(gEV_Type == Engine_CSGO)
 			{
-				PrintCenterText(client, "Your beam color is now: <font color='%s'>%s</font>.", sHexColor, gS_TrailTitle[choice]);
+				PrintCenterText(client, "Your beam color is now: <font color='%s' face=''>%s</font>.", sHexColor, gS_TrailTitle[choice]);
 			}
 			else
 			{
@@ -390,7 +412,7 @@ void MenuSelection(int client, char[] info)
 	}
 	
 	gI_SelectedTrail[client] = choice;
-	SetClientCookie(client, gH_TrailSelectionCookie, info);
+	SetClientCookie(client, gH_TrailChoiceCookie, info);
 }
 
 public Action OnPlayerRunCmd(int client)
@@ -445,7 +467,7 @@ void CreatePlayerTrail(int client, float origin[3])
 {
 	bool bClientTeleported = GetVectorDistance(origin, gF_LastPosition[client], false) > 50.0;
 	
-	if(!gB_PluginEnabled || gI_SelectedTrail[client] == 0 || !IsPlayerAlive(client) || TF2_IsPlayerInCondition(client, TFCond_Cloaked) || bClientTeleported)
+	if(!gB_PluginEnabled || gI_SelectedTrail[client] == 0 || !IsPlayerAlive(client) || bClientTeleported)
 	{
 		return;
 	}
@@ -453,6 +475,14 @@ void CreatePlayerTrail(int client, float origin[3])
 	if(gB_AdminsOnly && !CheckCommandAccess(client, "sm_trails_override", ADMFLAG_RESERVATION))
 	{
 		return;
+	}
+	
+	if(gEV_Type == Engine_TF2)
+	{
+		if(TF2_IsPlayerInCondition(client, TFCond_Cloaked)) // If the Spy is invisible
+		{
+			return;
+		}
 	}
 	
 	float fFirstPos[3];
@@ -469,7 +499,7 @@ void CreatePlayerTrail(int client, float origin[3])
 	GetClientTrailColors(client, color);
 	
 	TE_SetupBeamPoints(fFirstPos, fSecondPos, gI_BeamSprite, 0, 0, 0, gF_BeamLife, gF_BeamWidth, gF_BeamWidth, 10, 0.0, color, 0);
-	SendTempEntity(client);
+	SendTempEntity(client); // Oh damn...
 }
 
 int[] GetClientTrailColors(int client, int[] color)
@@ -524,31 +554,31 @@ int[] GetClientTrailColors(int client, int[] color)
 
 void SendTempEntity(int client)
 {
-	if(gB_HidingTrails[client])
+	if(gB_HidingTrails[client]) // If the player is hiding other players' trails
 	{
-		if(aL_Clients.Length == 0)
+		if(aL_Clients.Length == 0) // If there's nobody on the list (everyone has hiding enabled)
 		{
-			TE_SendToClient(client);
+			TE_SendToClient(client); // Send the trail to the current client only
 		}
 		else
 		{
 			int[] clientList = new int[aL_Clients.Length + 1];
 			int arrayIndex = 0;
 			
-			for(int i = 0; i < aL_Clients.Length; i++)
+			for(int i = 0; i < aL_Clients.Length; i++) // That's basically "foreach(int clientIndex in aL_Clients)"
 			{
 				clientList[arrayIndex] = aL_Clients.Get(i);
 				arrayIndex++;
 			}
 			
-			clientList[arrayIndex] = client;
+			clientList[arrayIndex] = client; // Add the current client to the array so he can see his own trail
 			
-			TE_Send(clientList, aL_Clients.Length + 1);
+			TE_Send(clientList, aL_Clients.Length + 1); // The client will send the trail to everyone but won't recieve any other trails
 		}
 	}
 	else
 	{
-		if(aL_Clients.Length == 0)
+		if(aL_Clients.Length == 0) // If there's nobody on the list
 		{
 			return;
 		}
@@ -556,13 +586,13 @@ void SendTempEntity(int client)
 		int[] clientList = new int[aL_Clients.Length];
 		int arrayIndex = 0;
 		
-		for(int i = 0; i < aL_Clients.Length; i++)
+		for(int i = 0; i < aL_Clients.Length; i++) // foreach(int clientIndex in aL_Clients)
 		{
 			clientList[arrayIndex] = aL_Clients.Get(i);
 			arrayIndex++;
 		}
 		
-		TE_Send(clientList, aL_Clients.Length);
+		TE_Send(clientList, aL_Clients.Length); // The client will send the trail to everyone and will revieve other players' trails as well
 	}
 }
 
@@ -672,7 +702,7 @@ public void OnClientDisconnect(int client)
 {
 	int index = aL_Clients.FindValue(client);
 	
-	if(index != -1)
+	if(index != -1) // If the index is valid and the player was found on the list
 	{
 		aL_Clients.Erase(index);
 	}
@@ -683,7 +713,7 @@ public void OnMapEnd()
 	aL_Clients.Clear();
 }
 
-stock bool IsValidClient(int client)
+bool IsValidClient(int client)
 {
-	return client >= 1 && client <= MaxClients && IsClientConnected(client) && IsClientInGame(client) && !IsFakeClient(client);
+	return 1 <= client <= MaxClients && IsClientConnected(client) && IsClientInGame(client) && !IsFakeClient(client);
 }
