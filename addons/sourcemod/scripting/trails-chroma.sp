@@ -351,14 +351,6 @@ void MenuSelection(int client, char[] info)
 {
 	int choice = StringToInt(info);
 	
-	int color[3];
-	color[0] = gI_TrailSettings[choice][iRedChannel];
-	color[1] = gI_TrailSettings[choice][iGreenChannel];
-	color[2] = gI_TrailSettings[choice][iBlueChannel];
-	
-	char[] sHexColor = new char[16];
-	FormatEx(sHexColor, 16, "#%02x%02x%02x", color[0], color[1], color[2]);
-	
 	if(choice == TRAIL_NONE)
 	{
 		if(gEV_Type == Engine_CSGO) // CS:GO supports HTML
@@ -372,6 +364,14 @@ void MenuSelection(int client, char[] info)
 	}
 	else
 	{
+		int color[3];
+		color[0] = gI_TrailSettings[choice][iRedChannel];
+		color[1] = gI_TrailSettings[choice][iGreenChannel];
+		color[2] = gI_TrailSettings[choice][iBlueChannel];
+		
+		char[] sHexColor = new char[16];
+		FormatEx(sHexColor, 16, "#%02x%02x%02x", color[0], color[1], color[2]);
+		
 		if(gI_SelectedTrail[client] == TRAIL_NONE)
 		{
 			if(gEV_Type == Engine_CSGO)
