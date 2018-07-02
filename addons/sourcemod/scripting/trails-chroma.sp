@@ -146,7 +146,7 @@ public void OnClientCookiesCached(int client)
 	char[] sChoiceCookie = new char[8];
 	GetClientCookie(client, gH_TrailChoiceCookie, sChoiceCookie, 8);
 	
-	bool bNoAccess = gB_AdminsOnly && !CheckCommandAccess(client, "sm_auras_override", ADMFLAG_RESERVATION);
+	bool bNoAccess = gB_AdminsOnly && !CheckCommandAccess(client, "sm_trails_override", ADMFLAG_RESERVATION);
 	
 	if(sChoiceCookie[0] == '\0' || bNoAccess) // If the cookie is empty or the player doesn't have access
 	{
