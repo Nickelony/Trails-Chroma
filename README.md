@@ -7,16 +7,18 @@
 <b>Commands:</b>
 
 + <b>sm_trail / sm_trails</b> - Opens the <i><b>Trail Selection</b></i> menu.
-+ <b>sm_trails_override</b> - Overrides the current <i><b>admin flag</b></i>.
++ <b>sm_hide</b> - Hides <i><b>other players'</b></i> trails. <i>// You may want to reset your cookies if you want to use this with a bhop timer.</i>
++ <b>sm_trails_override</b> - Overrides the current <i><b>admin flag</b></i>. <i>// Use it in admin_overrides.cfg</i>
 
 <b>CVars:</b>
 
 + <b>sm_trails_enable</b> - Enables or Disables all features of the plugin.
-+ <b>sm_trails_adminsonly</b> - Enables trails for admins only. (VOTE Flag)
++ <b>sm_trails_admins_only</b> - Enables trails for admins only. <i>(RESERVATION Flag)</i>
++ <b>sm_trails_allow_hide</b> - Allow hiding other players' trails.
 + <b>sm_trails_cheap</b> - Force cheap trails (lower quality in exchange for more FPS).
 + <b>sm_trails_life</b> - Time duration of the trails.
 + <b>sm_trails_width</b> - Width of the trail beams.
-+ <b>sm_trails_respawn</b> - Disable the player's trail after respawning.
++ <b>sm_trails_respawn_disable</b> - Disable the player's trail after respawning.
 
 <b>Installation:</b><br>
 
