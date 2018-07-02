@@ -197,7 +197,7 @@ public void OnPlayerSpawn(Event event, const char[] name, bool dontBroadcast)
 	
 	if(gB_RespawnDisable) // Reset trail on respawn
 	{
-		gI_SelectedTrail[client] = 0;
+		gI_SelectedTrail[client] = TRAIL_NONE;
 	}
 }
 
@@ -359,7 +359,7 @@ void MenuSelection(int client, char[] info)
 	char[] sHexColor = new char[16];
 	FormatEx(sHexColor, 16, "#%02x%02x%02x", color[0], color[1], color[2]);
 	
-	if(choice == 0)
+	if(choice == TRAIL_NONE)
 	{
 		if(gEV_Type == Engine_CSGO) // CS:GO supports HTML
 		{
@@ -372,7 +372,7 @@ void MenuSelection(int client, char[] info)
 	}
 	else
 	{
-		if(gI_SelectedTrail[client] == 0)
+		if(gI_SelectedTrail[client] == TRAIL_NONE)
 		{
 			if(gEV_Type == Engine_CSGO)
 			{
@@ -469,7 +469,7 @@ void CreatePlayerTrail(int client, float origin[3])
 {
 	bool bClientTeleported = GetVectorDistance(origin, gF_LastPosition[client], false) > 50.0;
 	
-	if(!gB_PluginEnabled || gI_SelectedTrail[client] == 0 || !IsPlayerAlive(client) || bClientTeleported)
+	if(!gB_PluginEnabled || gI_SelectedTrail[client] == TRAIL_NONE || !IsPlayerAlive(client) || bClientTeleported)
 	{
 		return;
 	}
