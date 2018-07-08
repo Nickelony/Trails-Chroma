@@ -361,6 +361,8 @@ void MenuSelection(int client, char[] info)
 		{
 			PrintCenterText(client, "Your trail is now DISABLED.");
 		}
+		
+		StopSpectrumCycle(client);
 	}
 	else
 	{
@@ -394,27 +396,32 @@ void MenuSelection(int client, char[] info)
 				PrintCenterText(client, "Your beam color is now: %s.", gS_TrailTitle[choice]);
 			}
 		}
-	}
-	
-	if(gI_TrailSettings[choice][iSpecialColor] == 1 || gI_TrailSettings[choice][iSpecialColor] == 2)
-	{
-		gI_CycleColor[client][0] = 0;
-		gI_CycleColor[client][1] = 0;
-		gI_CycleColor[client][2] = 0;
-		gB_RedToYellow[client] = true;
-	}
-	else
-	{
-		gB_RedToYellow[client] = false;
-		gB_YellowToGreen[client] = false;
-		gB_GreenToCyan[client] = false;
-		gB_CyanToBlue[client] = false;
-		gB_BlueToMagenta[client] = false;
-		gB_MagentaToRed[client] = false;
+		
+		if(gI_TrailSettings[choice][iSpecialColor] == 1 || gI_TrailSettings[choice][iSpecialColor] == 2)
+		{
+			gI_CycleColor[client][0] = 0;
+			gI_CycleColor[client][1] = 0;
+			gI_CycleColor[client][2] = 0;
+			gB_RedToYellow[client] = true;
+		}
+		else
+		{
+			StopSpectrumCycle(client);
+		}
 	}
 	
 	gI_SelectedTrail[client] = choice;
 	SetClientCookie(client, gH_TrailChoiceCookie, info);
+}
+
+void StopSpectrumCycle(int client)
+{
+	gB_RedToYellow[client] = false;
+	gB_YellowToGreen[client] = false;
+	gB_GreenToCyan[client] = false;
+	gB_CyanToBlue[client] = false;
+	gB_BlueToMagenta[client] = false;
+	gB_MagentaToRed[client] = false;
 }
 
 public Action OnPlayerRunCmd(int client)
