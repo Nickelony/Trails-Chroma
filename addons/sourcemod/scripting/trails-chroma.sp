@@ -136,12 +136,8 @@ public void OnPluginStart()
 	gEV_Type = GetEngineVersion();
 
 	for(int i = 1; i <= MaxClients; i++)
-	{
 		if(AreClientCookiesCached(i))
-		{
-			OnClientCookiesCached(i);
-		}
-	}
+			OnClientPostAdminCheck(i);
 }
 
 public void OnConVarChanged(ConVar convar, const char[] oldValue, const char[] newValue)
@@ -155,12 +151,10 @@ public void OnConVarChanged(ConVar convar, const char[] oldValue, const char[] n
 	gB_RespawnDisable = gCV_RespawnDisable.BoolValue;
 }
 
-public void OnClientCookiesCached(int client)
+public void OnClientPostAdminCheck(int client)
 {
 	if(IsFakeClient(client))
-	{
 		return;
-	}
 
 	char[] sChoiceCookie = new char[8];
 	GetClientCookie(client, gH_TrailChoiceCookie, sChoiceCookie, 8);
@@ -173,26 +167,20 @@ public void OnClientCookiesCached(int client)
 		SetClientCookie(client, gH_TrailChoiceCookie, sChoiceCookie);
 	}
 	else
-	{
 		gI_SelectedTrail[client] = StringToInt(sChoiceCookie);
-	}
 
 	char[] sHidingCookie = new char[8];
 	GetClientCookie(client, gH_TrailHidingCookie, sHidingCookie, 8);
 	gB_HidingTrails[client] = StringToInt(sHidingCookie) == 1;
 
 	if(IsValidClient(client) && !gB_HidingTrails[client] && aL_Clients.FindValue(client) == -1) // Only works after reloading the plugin
-	{
 		aL_Clients.Push(client);
-	}
 }
 
 public void OnMapStart()
 {
 	if(!LoadColorsConfig())
-	{
 		SetFailState("Failed load \"configs/trails-colors.cfg\". File missing or invalid.");
-	}
 
 	gI_BeamSprite = PrecacheModel("materials/trails/beam_01.vmt", true);
 
@@ -205,19 +193,13 @@ public void OnPlayerSpawn(Event event, const char[] name, bool dontBroadcast)
 	int client = GetClientOfUserId(event.GetInt("userid"));
 
 	if(!IsValidClient(client))
-	{
 		return;
-	}
 
 	if(!gB_HidingTrails[client] && aL_Clients.FindValue(client) == -1) // If the client isn't hiding trails, but somehow isn't on the list
-	{
 		aL_Clients.Push(client);
-	}
 
 	if(gB_RespawnDisable) // Reset trail on respawn
-	{
 		gI_SelectedTrail[client] = TRAIL_NONE;
-	}
 }
 
 bool LoadColorsConfig()
@@ -256,9 +238,7 @@ bool LoadColorsConfig()
 public Action Command_Hide(int client, int args)
 {
 	if(!gB_PluginEnabled || !gB_AllowHide || !IsValidClient(client))
-	{
 		return Plugin_Handled;
-	}
 
 	gB_HidingTrails[client] = !gB_HidingTrails[client]; // Toggle it
 
@@ -267,18 +247,12 @@ public Action Command_Hide(int client, int args)
 		int index = aL_Clients.FindValue(client);
 
 		if(index != -1) // If the index is valid and the player was found on the list
-		{
 			aL_Clients.Erase(index);
-		}
 
 		if(gEV_Type == Engine_CSGO) // CS:GO supports HTML
-		{
 			PrintCenterText(client, "Other players' trails are now <font color='#FF00FF' face=''>Hidden</font>.");
-		}
 		else
-		{
 			PrintCenterText(client, "Other players' trails are now Hidden.");
-		}
 
 		SetClientCookie(client, gH_TrailHidingCookie, "0");
 	}
@@ -287,13 +261,9 @@ public Action Command_Hide(int client, int args)
 		aL_Clients.Push(client);
 
 		if(gEV_Type == Engine_CSGO)
-		{
 			PrintCenterText(client, "Other players' trails are now <font color='#FFFF00' face=''>Visible</font>.");
-		}
 		else
-		{
 			PrintCenterText(client, "Other players' trails are now Visible.");
-		}
 
 		SetClientCookie(client, gH_TrailHidingCookie, "1");
 	}
@@ -304,9 +274,7 @@ public Action Command_Hide(int client, int args)
 public Action Command_Trail(int client, int args)
 {
 	if(!gB_PluginEnabled || !IsValidClient(client))
-	{
 		return Plugin_Handled;
-	}
 
 	if(gB_AdminsOnly && !CheckCommandAccess(client, "sm_trails_override", ADMFLAG_RESERVATION))
 	{
@@ -333,13 +301,9 @@ Action OpenTrailMenu(int client, int page)
 		IntToString(i, sInfo, 8);
 
 		if(StrEqual(gS_TrailTitle[i], "/empty/") || StrEqual(gS_TrailTitle[i], "/EMPTY/") || StrEqual(gS_TrailTitle[i], "{empty}") || StrEqual(gS_TrailTitle[i], "{EMPTY}"))
-		{
 			menu.AddItem("", "", ITEMDRAW_SPACER); // Empty line support
-		}
 		else
-		{
 			menu.AddItem(sInfo, gS_TrailTitle[i], (gI_SelectedTrail[client] == i)? ITEMDRAW_DISABLED:ITEMDRAW_DEFAULT);
-		}
 	}
 
 	menu.ExitButton = true;
@@ -359,9 +323,7 @@ public int Menu_Handler(Menu menu, MenuAction action, int param1, int param2)
 		OpenTrailMenu(param1, GetMenuSelectionPosition());
 	}
 	else if(action == MenuAction_End)
-	{
 		delete menu;
-	}
 
 	return 0;
 }
@@ -373,13 +335,9 @@ void MenuSelection(int client, char[] info)
 	if(choice == TRAIL_NONE)
 	{
 		if(gEV_Type == Engine_CSGO) // CS:GO supports HTML
-		{
 			PrintCenterText(client, "Your trail is now <font color='#FF0000' face=''>DISABLED</font>.");
-		}
 		else
-		{
 			PrintCenterText(client, "Your trail is now DISABLED.");
-		}
 
 		StopSpectrumCycle(client);
 	}
@@ -396,24 +354,16 @@ void MenuSelection(int client, char[] info)
 		if(gI_SelectedTrail[client] == TRAIL_NONE)
 		{
 			if(gEV_Type == Engine_CSGO)
-			{
 				PrintCenterText(client, "Your trail is now <font color='#00FF00' face=''>ENABLED</font>.\nYour beam color is: <font color='%s' face=''>%s</font>.", sHexColor, gS_TrailTitle[choice]);
-			}
 			else
-			{
 				PrintCenterText(client, "Your trail is now ENABLED.\nYour beam color is: %s.", gS_TrailTitle[choice]);
-			}
 		}
 		else
 		{
 			if(gEV_Type == Engine_CSGO)
-			{
 				PrintCenterText(client, "Your beam color is now: <font color='%s' face=''>%s</font>.", sHexColor, gS_TrailTitle[choice]);
-			}
 			else
-			{
 				PrintCenterText(client, "Your beam color is now: %s.", gS_TrailTitle[choice]);
-			}
 		}
 
 		if(gI_TrailSettings[choice].iSpecialColor == 1 || gI_TrailSettings[choice].iSpecialColor == 2)
@@ -424,9 +374,7 @@ void MenuSelection(int client, char[] info)
 			gB_RedToYellow[client] = true;
 		}
 		else
-		{
 			StopSpectrumCycle(client);
-		}
 	}
 
 	gI_SelectedTrail[client] = choice;
@@ -446,13 +394,9 @@ void StopSpectrumCycle(int client)
 public Action OnPlayerRunCmd(int client)
 {
 	if(gB_CheapTrails)
-	{
 		ForceCheapTrails(client);
-	}
 	else
-	{
 		ForceExpensiveTrails(client);
-	}
 
 	return Plugin_Continue;
 }
@@ -472,9 +416,7 @@ void ForceCheapTrails(int client)
 	gI_TickCounter[client]++;
 
 	if(gI_TickCounter[client] <= 1)
-	{
 		return; // Skip 1 frame. That's 50% less sprites to render
-	}
 
 	gI_TickCounter[client] = 0;
 
@@ -496,22 +438,13 @@ void CreatePlayerTrail(int client, float origin[3])
 	bool bClientTeleported = GetVectorDistance(origin, gF_LastPosition[client], false) > 50.0;
 
 	if(!gB_PluginEnabled || gI_SelectedTrail[client] == TRAIL_NONE || !IsPlayerAlive(client) || bClientTeleported)
-	{
 		return;
-	}
 
 	if(gB_AdminsOnly && !CheckCommandAccess(client, "sm_trails_override", ADMFLAG_RESERVATION))
-	{
 		return;
-	}
 
-	if(gEV_Type == Engine_TF2)
-	{
-		if(TF2_IsPlayerInCondition(client, TFCond_Cloaked)) // If the Spy is invisible
-		{
-			return;
-		}
-	}
+	if(gEV_Type == Engine_TF2 && TF2_IsPlayerInCondition(client, TFCond_Cloaked)) // If the Spy is invisible
+		return;
 
 	float fFirstPos[3];
 	fFirstPos[0] = origin[0];
@@ -585,9 +518,7 @@ void SendTempEntity(int client)
 	if(gB_HidingTrails[client]) // If the player is hiding other players' trails
 	{
 		if(aL_Clients.Length == 0) // If there's nobody on the list (everyone has hiding enabled)
-		{
 			TE_SendToClient(client); // Send the trail to the current client only
-		}
 		else
 		{
 			int[] clientList = new int[aL_Clients.Length + 1];
@@ -607,9 +538,7 @@ void SendTempEntity(int client)
 	else
 	{
 		if(aL_Clients.Length == 0) // If there's nobody on the list
-		{
 			return;
-		}
 
 		int[] clientList = new int[aL_Clients.Length];
 		int arrayIndex = 0;
@@ -687,9 +616,7 @@ void DrawVelocityTrail(int client, float currentspeed)
 	int stepsize = 0;
 
 	if(currentspeed <= 255.0)
-	{
 		gI_CycleColor[client][0] = 0; gI_CycleColor[client][1] = 0; gI_CycleColor[client][2] = 255;
-	}
 	else if(currentspeed > 255.0 && currentspeed <= 510.0)
 	{
 		stepsize = RoundToFloor(currentspeed) - 255;
@@ -721,9 +648,7 @@ void DrawVelocityTrail(int client, float currentspeed)
 		gI_CycleColor[client][0] = stepsize; gI_CycleColor[client][1] = 0; gI_CycleColor[client][2] = 255;
 	}
 	else
-	{
 		gI_CycleColor[client][0] = 125; gI_CycleColor[client][1] = 0; gI_CycleColor[client][2] = 255;
-	}
 }
 
 public void OnClientDisconnect(int client)
@@ -731,9 +656,7 @@ public void OnClientDisconnect(int client)
 	int index = aL_Clients.FindValue(client);
 
 	if(index != -1) // If the index is valid and the player was found on the list
-	{
 		aL_Clients.Erase(index);
-	}
 }
 
 public void OnMapEnd()
