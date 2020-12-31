@@ -616,7 +616,9 @@ void DrawVelocityTrail(int client, float currentspeed)
 	int stepsize = 0;
 
 	if(currentspeed <= 255.0)
+	{
 		gI_CycleColor[client][0] = 0; gI_CycleColor[client][1] = 0; gI_CycleColor[client][2] = 255;
+	}
 	else if(currentspeed > 255.0 && currentspeed <= 510.0)
 	{
 		stepsize = RoundToFloor(currentspeed) - 255;
@@ -648,7 +650,9 @@ void DrawVelocityTrail(int client, float currentspeed)
 		gI_CycleColor[client][0] = stepsize; gI_CycleColor[client][1] = 0; gI_CycleColor[client][2] = 255;
 	}
 	else
+	{
 		gI_CycleColor[client][0] = 125; gI_CycleColor[client][1] = 0; gI_CycleColor[client][2] = 255;
+	}
 }
 
 public void OnClientDisconnect(int client)
