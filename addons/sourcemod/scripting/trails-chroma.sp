@@ -99,7 +99,7 @@ public Plugin myinfo =
 	name = "Trails Chroma",
 	author = "Nickelony",
 	description = "Adds colorful player trails with special effects.",
-	version = "2.4",
+	version = "2.5",
 	url = "steamcommunity.com/id/nickelony"
 }
 
