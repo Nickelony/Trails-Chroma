@@ -393,6 +393,9 @@ void StopSpectrumCycle(int client)
 
 public Action OnPlayerRunCmd(int client)
 {
+	if(!IsValidClient(client))
+		return Plugin_Continue;
+
 	if(gB_CheapTrails)
 		ForceCheapTrails(client);
 	else
