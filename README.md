@@ -34,3 +34,9 @@
 <b>Screenshots:</b>
 
 <img src="https://puu.sh/yDmQn.jpg"></img>
+
+<b>Known issues:</b>
+
+If your hint text looks like this:<br>
+<b>&lt;font color='#ffffff' face=''&gt;Wave&lt;/font&gt;.</b><br>
+Consider installing this plugin: https://github.com/Franc1sco/FixHintColorMessages
