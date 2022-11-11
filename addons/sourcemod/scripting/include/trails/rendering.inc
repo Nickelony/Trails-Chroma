@@ -79,6 +79,8 @@ void CreatePlayerTrail(int client, Trail trail, float playerOrigin[3], float sec
 	if (gEV_Type == Engine_TF2 && TF2_IsPlayerInCondition(client, TFCond_Cloaked)) // If the Spy is invisible
 		return;
 
+	gC_DynamicColor[client].A = trail.Color.A;
+
 	float start[3];
 	CopyVector(start, playerOrigin);
 	start[2] += TRAILS_GROUND_OFFSET; // Lift trail start slightly above ground
@@ -89,7 +91,6 @@ void CreatePlayerTrail(int client, Trail trail, float playerOrigin[3], float sec
 
 	TrailColor cColor;
 	GetClientSpecificColorFromTrail(client, trail, cColor);
-	gC_DynamicColor[client].A = trail.Color.A;
 
 	int iColor[4];
 	ColorToInt(iColor, cColor);
